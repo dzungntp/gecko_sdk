@@ -138,23 +138,53 @@ sl_status_t sl_wfx_host_init_bus(void)
   dummy_tx_data = 0;
   usartInit.baudrate = 36000000u;
   usartInit.msbf = true;
+#if cmuClock_HFPER
   CMU_ClockEnable(cmuClock_HFPER, true);
+#else
+  CMU_ClockEnable(cmuClock_PCLK, true);
+#endif
+  CMU_ClockEnable(cmuClock_PCLK, true);
   CMU_ClockEnable(cmuClock_GPIO, true);
   CMU_ClockEnable(usart_clock, true);
   USART_InitSync(USART, &usartInit);
   USART->CTRL |= (1u << _USART_CTRL_SMSDELAY_SHIFT);
+#if USART->ROUTELOC0
   USART->ROUTELOC0 = (USART->ROUTELOC0
                       & ~(_USART_ROUTELOC0_TXLOC_MASK
                           | _USART_ROUTELOC0_RXLOC_MASK
                           | _USART_ROUTELOC0_CLKLOC_MASK))
-                     | (SL_WFX_HOST_PINOUT_SPI_TX_LOC  << _USART_ROUTELOC0_TXLOC_SHIFT)
-                     | (SL_WFX_HOST_PINOUT_SPI_RX_LOC  << _USART_ROUTELOC0_RXLOC_SHIFT)
-                     | (SL_WFX_HOST_PINOUT_SPI_CLK_LOC << _USART_ROUTELOC0_CLKLOC_SHIFT);
+                    | (SL_WFX_HOST_PINOUT_SPI_TX_LOC  << _USART_ROUTELOC0_TXLOC_SHIFT)
+                    | (SL_WFX_HOST_PINOUT_SPI_RX_LOC  << _USART_ROUTELOC0_RXLOC_SHIFT)
+                    | (SL_WFX_HOST_PINOUT_SPI_CLK_LOC << _USART_ROUTELOC0_CLKLOC_SHIFT);
 
   USART->ROUTEPEN = USART_ROUTEPEN_TXPEN
                     | USART_ROUTEPEN_RXPEN
                     | USART_ROUTEPEN_CLKPEN;
   GPIO_DriveStrengthSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, gpioDriveStrengthStrongAlternateStrong);
+
+#else
+  GPIO->USARTROUTE[0].TXROUTE = (SL_WFX_HOST_PINOUT_SPI_TX_PORT 
+                                  << _GPIO_USART_TXROUTE_PORT_SHIFT)
+                                | (SL_WFX_HOST_PINOUT_SPI_TX_PIN 
+                                  << _GPIO_USART_TXROUTE_PIN_SHIFT);
+
+  GPIO->USARTROUTE[0].RXROUTE = (SL_WFX_HOST_PINOUT_SPI_RX_PORT 
+                                  << _GPIO_USART_RXROUTE_PORT_SHIFT)
+                                | (SL_WFX_HOST_PINOUT_SPI_RX_PIN 
+                                  << _GPIO_USART_RXROUTE_PIN_SHIFT);
+
+  GPIO->USARTROUTE[0].CLKROUTE = (SL_WFX_HOST_PINOUT_SPI_CLK_PORT 
+                                  << _GPIO_USART_CLKROUTE_PORT_SHIFT)
+                                | (SL_WFX_HOST_PINOUT_SPI_CLK_PIN 
+                                  << _GPIO_USART_CLKROUTE_PIN_SHIFT);
+
+  GPIO->USARTROUTE[0].ROUTEEN = GPIO_USART_ROUTEEN_RXPEN  |
+                                GPIO_USART_ROUTEEN_TXPEN  |
+                                GPIO_USART_ROUTEEN_CLKPEN;
+
+  GPIO_SlewrateSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, 7, 7);
+#endif
+
   GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_TX_PORT, SL_WFX_HOST_PINOUT_SPI_TX_PIN, gpioModePushPull, 0);
   GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_RX_PORT, SL_WFX_HOST_PINOUT_SPI_RX_PIN, gpioModeInput, 0);
   GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, SL_WFX_HOST_PINOUT_SPI_CLK_PIN, gpioModePushPull, 0);

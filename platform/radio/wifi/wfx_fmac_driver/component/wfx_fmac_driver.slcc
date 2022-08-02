@@ -20,6 +20,8 @@ requires:
   - name: "wfx_bus_spi"
     condition: [brd4187b]
   - name: "wfx_bus_spi"
+    condition: [brd4187a]
+  - name: "wfx_bus_spi"
     condition: [brd4162a]
   - name: "wfx_bus_spi"
     condition: [brd4163a]
@@ -114,6 +116,11 @@ config_file:
       file_id: "sl_wfx_host_pinout"
     path: "config/brd4187b/sl_wfx_host_pinout.h"
     condition: [brd4187b]
+  - override:
+      component: "wfx_fmac_driver"
+      file_id: "sl_wfx_host_pinout"
+    path: "config/brd4187b/sl_wfx_host_pinout.h"
+    condition: [brd4187a]
   - override:
       component: "wfx_fmac_driver"
       file_id: "sl_wfx_host_pinout"

@@ -49,6 +49,11 @@ config_file:
       file_id: "sl_wfx_host_bus_pinout"
     path: "config/brd4187b/spi/sl_wfx_host_bus_pinout.h"
     condition: [brd4187b]
+  - override:
+      component: "wfx_bus_spi"
+      file_id: "sl_wfx_host_bus_pinout"
+    path: "config/brd4187b/spi/sl_wfx_host_bus_pinout.h"
+    condition: [brd4187a]
 template_contribution:
   - name: component_catalog
     value: wfx_bus_spi

@@ -138,31 +138,19 @@ sl_status_t sl_wfx_host_init_bus(void)
   dummy_tx_data = 0;
   usartInit.baudrate = 36000000u;
   usartInit.msbf = true;
-#ifndef EFR32MG24B020F1536IM48
-  CMU_ClockEnable(cmuClock_HFPER, true);
-#else
+#if defined(EFR32MG24B020F1536IM48) || defined (EFR32MG24A020F1536GM48)
   CMU_ClockEnable(cmuClock_USART0, true);
+#else
+  CMU_ClockEnable(cmuClock_HFPER, true);
 #endif
   
   CMU_ClockEnable(cmuClock_GPIO, true);
   CMU_ClockEnable(usart_clock, true);
   USART_InitSync(USART, &usartInit);
   USART->CTRL |= (1u << _USART_CTRL_SMSDELAY_SHIFT);
-#ifndef EFR32MG24B020F1536IM48 
-  USART->ROUTELOC0 = (USART->ROUTELOC0
-                      & ~(_USART_ROUTELOC0_TXLOC_MASK
-                          | _USART_ROUTELOC0_RXLOC_MASK
-                          | _USART_ROUTELOC0_CLKLOC_MASK))
-                    | (SL_WFX_HOST_PINOUT_SPI_TX_LOC  << _USART_ROUTELOC0_TXLOC_SHIFT)
-                    | (SL_WFX_HOST_PINOUT_SPI_RX_LOC  << _USART_ROUTELOC0_RXLOC_SHIFT)
-                    | (SL_WFX_HOST_PINOUT_SPI_CLK_LOC << _USART_ROUTELOC0_CLKLOC_SHIFT);
 
-  USART->ROUTEPEN = USART_ROUTEPEN_TXPEN
-                    | USART_ROUTEPEN_RXPEN
-                    | USART_ROUTEPEN_CLKPEN;
-  GPIO_DriveStrengthSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, gpioDriveStrengthStrongAlternateStrong);
+#if defined(EFR32MG24B020F1536IM48) || defined (EFR32MG24A020F1536GM48)
 
-#else
   GPIO->USARTROUTE[0].TXROUTE = (SL_WFX_HOST_PINOUT_SPI_TX_PORT 
                                   << _GPIO_USART_TXROUTE_PORT_SHIFT)
                                 | (SL_WFX_HOST_PINOUT_SPI_TX_PIN 
@@ -183,6 +171,19 @@ sl_status_t sl_wfx_host_init_bus(void)
                                 GPIO_USART_ROUTEEN_CLKPEN;
 
   GPIO_SlewrateSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, 7, 7); // dont understand yet
+#else
+  USART->ROUTELOC0 = (USART->ROUTELOC0
+                      & ~(_USART_ROUTELOC0_TXLOC_MASK
+                          | _USART_ROUTELOC0_RXLOC_MASK
+                          | _USART_ROUTELOC0_CLKLOC_MASK))
+                    | (SL_WFX_HOST_PINOUT_SPI_TX_LOC  << _USART_ROUTELOC0_TXLOC_SHIFT)
+                    | (SL_WFX_HOST_PINOUT_SPI_RX_LOC  << _USART_ROUTELOC0_RXLOC_SHIFT)
+                    | (SL_WFX_HOST_PINOUT_SPI_CLK_LOC << _USART_ROUTELOC0_CLKLOC_SHIFT);
+
+  USART->ROUTEPEN = USART_ROUTEPEN_TXPEN
+                    | USART_ROUTEPEN_RXPEN
+                    | USART_ROUTEPEN_CLKPEN;
+  GPIO_DriveStrengthSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, gpioDriveStrengthStrongAlternateStrong);
 #endif
 
   GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_TX_PORT, SL_WFX_HOST_PINOUT_SPI_TX_PIN, gpioModePushPull, 0);

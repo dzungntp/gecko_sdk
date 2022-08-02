@@ -143,12 +143,12 @@ sl_status_t sl_wfx_host_init_bus(void)
 #else
   CMU_ClockEnable(cmuClock_PCLK, true);
 #endif
-  CMU_ClockEnable(cmuClock_PCLK, true);
+  
   CMU_ClockEnable(cmuClock_GPIO, true);
   CMU_ClockEnable(usart_clock, true);
   USART_InitSync(USART, &usartInit);
   USART->CTRL |= (1u << _USART_CTRL_SMSDELAY_SHIFT);
-#if USART->ROUTELOC0
+#ifndef EFR32MG24B020F1536IM48 
   USART->ROUTELOC0 = (USART->ROUTELOC0
                       & ~(_USART_ROUTELOC0_TXLOC_MASK
                           | _USART_ROUTELOC0_RXLOC_MASK
@@ -182,7 +182,7 @@ sl_status_t sl_wfx_host_init_bus(void)
                                 GPIO_USART_ROUTEEN_TXPEN  |
                                 GPIO_USART_ROUTEEN_CLKPEN;
 
-  GPIO_SlewrateSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, 7, 7);
+  GPIO_SlewrateSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, 7, 7); // dont understand yet
 #endif
 
   GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_TX_PORT, SL_WFX_HOST_PINOUT_SPI_TX_PIN, gpioModePushPull, 0);

@@ -29,14 +29,14 @@
 // <<< sl:start pin_tool >>>
 // <gpio> SL_WFX_HOST_PINOUT_RESET
 // $[GPIO_SL_WFX_HOST_PINOUT_RESET]
-#define SL_WFX_HOST_PINOUT_RESET_PORT             gpioPortD
-#define SL_WFX_HOST_PINOUT_RESET_PIN              10
+#define SL_WFX_HOST_PINOUT_RESET_PORT             gpioPortA
+#define SL_WFX_HOST_PINOUT_RESET_PIN              5
 // [GPIO_SL_WFX_HOST_PINOUT_RESET]$
 
 // <gpio> SL_WFX_HOST_PINOUT_WUP
 // $[GPIO_SL_WFX_HOST_PINOUT_WUP]
-#define SL_WFX_HOST_PINOUT_WUP_PORT               gpioPortD
-#define SL_WFX_HOST_PINOUT_WUP_PIN                8
+#define SL_WFX_HOST_PINOUT_WUP_PORT               gpioPortB
+#define SL_WFX_HOST_PINOUT_WUP_PIN                5
 // [GPIO_SL_WFX_HOST_PINOUT_WUP]$
 
 // <gpio optional=true> SL_WFX_HOST_PINOUT_GPIO_WIRQ

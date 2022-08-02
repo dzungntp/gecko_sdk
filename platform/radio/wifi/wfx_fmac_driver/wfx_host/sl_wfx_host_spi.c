@@ -138,10 +138,10 @@ sl_status_t sl_wfx_host_init_bus(void)
   dummy_tx_data = 0;
   usartInit.baudrate = 36000000u;
   usartInit.msbf = true;
-#if cmuClock_HFPER
+#ifndef EFR32MG24B020F1536IM48
   CMU_ClockEnable(cmuClock_HFPER, true);
 #else
-  CMU_ClockEnable(cmuClock_PCLK, true);
+  CMU_ClockEnable(cmuClock_USART0, true);
 #endif
   
   CMU_ClockEnable(cmuClock_GPIO, true);

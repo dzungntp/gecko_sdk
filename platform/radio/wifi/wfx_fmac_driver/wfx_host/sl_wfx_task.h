@@ -18,9 +18,8 @@
 #ifndef SL_WFX_TASK_H
 #define SL_WFX_TASK_H
 
-#include <kernel/include/os.h>
-#include <common/include/rtos_utils.h>
-#include <common/include/rtos_err.h>
+#include <stdbool.h>
+#include "cmsis_os2.h"
 #include "sl_wfx_constants.h"
 #include "sl_wfx_host.h"
 
@@ -37,9 +36,9 @@ typedef struct {
 } sl_wfx_frame_q_item;
 
 extern sl_wfx_frame_q_item   bus_tx_frame;
-extern OS_SEM                bus_tx_complete_sem;
-extern OS_FLAG_GRP           bus_events;
-extern OS_MUTEX              sl_wfx_tx_queue_mutex;
+extern osSemaphoreId_t       sl_wfx_bus_tx_complete;
+extern osEventFlagsId_t      sl_wfx_bus_events;
+extern osMutexId_t           sl_wfx_tx_queue_mutex;
 extern sl_wfx_packet_queue_t sl_wfx_tx_queue_context;
 #ifdef __cplusplus
 extern "C" {
@@ -52,7 +51,7 @@ void sl_wfx_task_start (void);
 /**************************************************************************//**
  * Returns status of wfx receive frames.
  *****************************************************************************/
-bool wfx_bus_is_receive_processing (void);
+bool sl_wfx_bus_is_receive_processing (void);
 #ifdef __cplusplus
 }
 #endif

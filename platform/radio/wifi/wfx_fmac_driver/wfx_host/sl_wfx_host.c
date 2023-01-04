@@ -15,41 +15,50 @@
  *
  ******************************************************************************/
 
-#include  <rtos_description.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
 #include "em_gpio.h"
-
 #include "sl_wfx.h"
 #include "sl_wfx_host_pinout.h"
 
 // File specific to each platform, it must be created for custom boards
 #include "sl_wfx_pds.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-
 /* Firmware include */
 #include "sl_wfx_wf200_C0.h"
 
 #include "sl_wfx_task.h"
 #include "sl_wfx_host.h"
+#include "sli_mem_pool.h"
 
-OS_SEM wfx_confirmation;
-OS_SEM wfx_wakeup_sem;
+#define SL_WFX_HOST_BUFFER_SIZE   1616
+#define SL_WFX_HOST_BUFFER_NB     10
 
-static OS_MUTEX wfx_mutex;
+#ifdef SL_CATALOG_KERNEL_PRESENT
+#include "cmsis_os2.h"
+#include "sl_cmsis_os2_common.h"
+
+osSemaphoreId_t sl_wfx_confirmation;
+osSemaphoreId_t sl_wfx_wakeup_sem;
+static osMutexId_t sl_wfx_mutex;
+
+static uint8_t sl_wfx_confirmation_cb[osSemaphoreCbSize];
+static uint8_t sl_wfx_wakeup_sem_cb[osSemaphoreCbSize];
+static uint8_t sl_wfx_mutex_cb[osMutexCbSize];
+#endif
+
+SLI_MEM_POOL_DECLARE_BUFFER(sl_wfx_mem_pool, SL_WFX_HOST_BUFFER_SIZE, SL_WFX_HOST_BUFFER_NB);
 
 struct {
   uint32_t wf200_firmware_download_progress;
-  MEM_DYN_POOL buf_pool;
-  MEM_DYN_POOL buf_pool_rx_tx;
+  sli_mem_pool_handle_t buf_pool;
   int wf200_initialized;
   uint8_t waited_event_id;
   uint8_t posted_event_id;
 } host_context;
 
-#define SL_WFX_HOST_BUFFER_SIZE 1616
 
 #ifdef SL_WFX_USE_SDIO
 #ifdef SLEEP_ENABLED
@@ -70,21 +79,12 @@ sl_status_t sl_wfx_host_disable_spi (void);
  *****************************************************************************/
 sl_status_t sl_wfx_host_setup_memory_pools(void)
 {
-  RTOS_ERR err;
-  Mem_DynPoolCreate("SL WFX Host Buffers",
-                    &host_context.buf_pool,
-                    DEF_NULL,
-                    SL_WFX_HOST_BUFFER_SIZE,
-                    sizeof(CPU_INT32U),
-                    0,
-                    LIB_MEM_BLK_QTY_UNLIMITED,
-                    &err);
-  if (RTOS_ERR_CODE_GET(err) != RTOS_ERR_NONE) {
-#ifdef DEBUG
-    printf("wfx_host_setup_memory_pools: unable to set up memory pools for wfx\n");
-#endif
-    return SL_STATUS_ALLOCATION_FAILED;
-  }
+  sli_mem_pool_create(&host_context.buf_pool,
+                     SL_WFX_HOST_BUFFER_SIZE,
+                     SL_WFX_HOST_BUFFER_NB,
+                     sl_wfx_mem_pool_buffer,
+                     sizeof(sl_wfx_mem_pool_buffer));
+
   return SL_STATUS_OK;
 }
 
@@ -93,32 +93,38 @@ sl_status_t sl_wfx_host_setup_memory_pools(void)
  *****************************************************************************/
 sl_status_t sl_wfx_host_init(void)
 {
-  sl_status_t status = SL_STATUS_OK;
-  RTOS_ERR err;
-  bool error = false;
-
   host_context.wf200_firmware_download_progress = 0;
   host_context.wf200_initialized = 0;
 
-  OSSemCreate(&wfx_confirmation, "wfx confirmation", 0, &err);
-  if (RTOS_ERR_CODE_GET(err) != RTOS_ERR_NONE) {
-    error = true;
-  }
-  OSSemCreate(&wfx_wakeup_sem, "wfx wakeup", 0, &err);
-  if (RTOS_ERR_CODE_GET(err) != RTOS_ERR_NONE) {
-    error = true;
-  }
-  OSMutexCreate(&wfx_mutex, "wfx host mutex", &err);
-  if (RTOS_ERR_CODE_GET(err) != RTOS_ERR_NONE) {
-    error = true;
-  }
+#ifdef SL_CATALOG_KERNEL_PRESENT
+  osSemaphoreAttr_t sem_attr;
+  osMutexAttr_t     mutex_attr;
 
-  if (error) {
-    printf("OS error: sl_wfx_host_init");
-    status = SL_STATUS_FAIL;
-  }
+  sem_attr.name = "WFX confirmation";
+  sem_attr.cb_mem = sl_wfx_confirmation_cb;
+  sem_attr.cb_size = osSemaphoreCbSize;
+  sem_attr.attr_bits = 0;
+  sl_wfx_confirmation = osSemaphoreNew(1, 0, &sem_attr);
 
-  return status;
+  sem_attr.name = "WFX wakeup";
+  sem_attr.cb_mem = sl_wfx_wakeup_sem_cb;
+  sl_wfx_wakeup_sem = osSemaphoreNew(1, 0, &sem_attr);
+
+  mutex_attr.name = "WFX host mutex";
+  mutex_attr.cb_mem = sl_wfx_mutex_cb;
+  mutex_attr.cb_size = osMutexCbSize;
+  mutex_attr.attr_bits = 0;
+  sl_wfx_mutex = osMutexNew(&mutex_attr);
+
+  if ((sl_wfx_confirmation == NULL)
+      || (sl_wfx_wakeup_sem == NULL)
+      || (sl_wfx_mutex == NULL)) {
+    printf("WFX Host init error\r\n");
+    return SL_STATUS_FAIL;
+  }
+#endif
+
+  return SL_STATUS_OK;
 }
 
 /**************************************************************************//**
@@ -173,20 +179,13 @@ sl_status_t sl_wfx_host_allocate_buffer(void **buffer,
                                         sl_wfx_buffer_type_t type,
                                         uint32_t buffer_size)
 {
-  RTOS_ERR err;
   (void)type;
+  (void)buffer_size;
 
-  if (buffer_size > host_context.buf_pool.BlkSize) {
+  *buffer = sli_mem_pool_alloc(&host_context.buf_pool);
+  if (*buffer == NULL) {
 #ifdef DEBUG
-    printf("Unable to allocate wfx buffer\n");
-    printf("type = %d, buffer_size requested = %d, mem pool blksize = %d\n", (int)type, (int)buffer_size, (int)host_context.buf_pool.BlkSize);
-#endif
-    return SL_STATUS_ALLOCATION_FAILED;
-  }
-  *buffer = Mem_DynPoolBlkGet(&host_context.buf_pool, &err);
-  if (RTOS_ERR_CODE_GET(err) != RTOS_ERR_NONE) {
-#ifdef DEBUG
-    printf("Mem_DynPoolBlkGet error control buffer\r\n");
+    printf("WFX Host buffer allocation error\r\n");
 #endif
     return SL_STATUS_ALLOCATION_FAILED;
   }
@@ -199,14 +198,9 @@ sl_status_t sl_wfx_host_allocate_buffer(void **buffer,
  *****************************************************************************/
 sl_status_t sl_wfx_host_free_buffer(void* buffer, sl_wfx_buffer_type_t type)
 {
-  RTOS_ERR err;
   (void)type;
+  sli_mem_pool_free(&host_context.buf_pool, buffer);
 
-  Mem_DynPoolBlkFree(&host_context.buf_pool, buffer, &err);
-
-  if (RTOS_ERR_CODE_GET(err) != RTOS_ERR_NONE) {
-    printf("Mem_DynPoolBlkFree error \r\n");
-  }
   return SL_STATUS_OK;
 }
 
@@ -255,55 +249,54 @@ sl_status_t sl_wfx_host_set_wake_up_pin(uint8_t state)
 
 sl_status_t sl_wfx_host_reset_chip(void)
 {
-  RTOS_ERR err;
   // Pull it low for at least 1 ms to issue a reset sequence
   GPIO_PinOutClear(SL_WFX_HOST_PINOUT_RESET_PORT, SL_WFX_HOST_PINOUT_RESET_PIN);
   // Delay for 10ms
-  OSTimeDly(10, OS_OPT_TIME_DLY, &err);
-
+  sl_wfx_host_wait(10);
   // Hold pin high to get chip out of reset
   GPIO_PinOutSet(SL_WFX_HOST_PINOUT_RESET_PORT, SL_WFX_HOST_PINOUT_RESET_PIN);
   // Delay for 3ms
-  OSTimeDly(3, OS_OPT_TIME_DLY, &err);
+  sl_wfx_host_wait(3);
+
   host_context.wf200_initialized = 0;
   return SL_STATUS_OK;
 }
 
+#ifdef SL_CATALOG_KERNEL_PRESENT
 sl_status_t sl_wfx_host_wait_for_wake_up(void)
 {
-  RTOS_ERR err;
-  OSSemSet(&wfx_wakeup_sem, 0, &err);
-  OSSemPend(&wfx_wakeup_sem, 3, OS_OPT_PEND_BLOCKING, 0, &err);
+  osStatus_t status;
+
+  status = osSemaphoreAcquire(sl_wfx_wakeup_sem, 3);
+  if (status != osOK)
+  {
+    return SL_STATUS_FAIL;
+  }
+
   return SL_STATUS_OK;
 }
 
 sl_status_t sl_wfx_host_wait(uint32_t wait_time)
 {
-  RTOS_ERR err;
-  OSTimeDly(wait_time, OS_OPT_TIME_DLY, &err);
-  return SL_STATUS_OK;
-}
+  osStatus_t status;
 
-sl_status_t sl_wfx_host_setup_waited_event(uint8_t event_id)
-{
-  host_context.waited_event_id = event_id;
-  host_context.posted_event_id = 0;
+  status = osDelay(wait_time);
+  if (status != osOK)
+  {
+    return SL_STATUS_FAIL;
+  }
 
   return SL_STATUS_OK;
-}
-
-uint8_t sl_wfx_host_get_waited_event(void)
-{
-  return host_context.waited_event_id;
 }
 
 sl_status_t sl_wfx_host_wait_for_confirmation(uint8_t confirmation_id, uint32_t timeout, void** event_payload_out)
 {
-  RTOS_ERR err;
+  osStatus_t  status;
+
   while (timeout > 0u) {
     timeout--;
-    OSSemPend(&wfx_confirmation, 1, OS_OPT_PEND_BLOCKING, 0, &err);
-    if (RTOS_ERR_CODE_GET(err) == RTOS_ERR_NONE) {
+    status = osSemaphoreAcquire(sl_wfx_confirmation, 1);
+    if (status == osOK) {
       if (confirmation_id == host_context.posted_event_id) {
         if ( event_payload_out != NULL ) {
           *event_payload_out = sl_wfx_context->event_payload_buffer;
@@ -311,7 +304,7 @@ sl_status_t sl_wfx_host_wait_for_confirmation(uint8_t confirmation_id, uint32_t 
 
         return SL_STATUS_OK;
       }
-    } else if (RTOS_ERR_CODE_GET(err) != RTOS_ERR_TIMEOUT) {
+    } else if (status != osErrorTimeout) {
       printf("OS error: sl_wfx_host_wait_for_confirmation\r\n");
     }
   }
@@ -326,11 +319,15 @@ sl_status_t sl_wfx_host_wait_for_confirmation(uint8_t confirmation_id, uint32_t 
  *****************************************************************************/
 sl_status_t sl_wfx_host_lock(void)
 {
-  RTOS_ERR err;
-  OSMutexPend(&wfx_mutex, 0, OS_OPT_PEND_BLOCKING, 0, &err);
-  if (RTOS_ERR_CODE_GET(err) != RTOS_ERR_NONE) {
+  osStatus_t status;
+
+  status = osMutexAcquire(sl_wfx_mutex, 5000);
+  if (status != osOK)
+  {
+    printf("WFX Host lock error (%d)\r\n", status);
     return SL_STATUS_FAIL;
   }
+
   return SL_STATUS_OK;
 }
 
@@ -341,11 +338,15 @@ sl_status_t sl_wfx_host_lock(void)
  *****************************************************************************/
 sl_status_t sl_wfx_host_unlock(void)
 {
-  RTOS_ERR err;
-  OSMutexPost(&wfx_mutex, OS_OPT_POST_NONE, &err);
-  if (RTOS_ERR_CODE_GET(err) != RTOS_ERR_NONE) {
+  osStatus_t status;
+
+  status = osMutexRelease(sl_wfx_mutex);
+  if (status != osOK)
+  {
+    printf("WFX Host unlock error (%d)\r\n", status);
     return SL_STATUS_FAIL;
   }
+
   return SL_STATUS_OK;
 }
 
@@ -356,7 +357,6 @@ sl_status_t sl_wfx_host_unlock(void)
  *****************************************************************************/
 sl_status_t sl_wfx_host_post_event(sl_wfx_generic_message_t *event_payload)
 {
-  RTOS_ERR err;
   sl_status_t status;
 
 #ifdef SL_WFX_USE_SECURE_LINK
@@ -375,16 +375,30 @@ sl_status_t sl_wfx_host_post_event(sl_wfx_generic_message_t *event_payload)
   /* Forward the message to the application */
   status = sl_wfx_host_process_event(event_payload);
 
-  if ( host_context.waited_event_id == event_payload->header.id ) {
+  if (host_context.waited_event_id == event_payload->header.id) {
     /* Post the event in the queue */
     memcpy(sl_wfx_context->event_payload_buffer,
            (void*) event_payload,
            event_payload->header.length);
     host_context.posted_event_id = event_payload->header.id;
-    OSSemPost(&wfx_confirmation, OS_OPT_POST_1, &err);
+    osSemaphoreRelease(sl_wfx_confirmation);
   }
 
   return status;
+}
+#endif /* SL_CATALOG_KERNEL_PRESENT */
+
+sl_status_t sl_wfx_host_setup_waited_event(uint8_t event_id)
+{
+  host_context.waited_event_id = event_id;
+  host_context.posted_event_id = 0;
+
+  return SL_STATUS_OK;
+}
+
+uint8_t sl_wfx_host_get_waited_event(void)
+{
+  return host_context.waited_event_id;
 }
 
 /**************************************************************************//**
@@ -416,9 +430,9 @@ sl_status_t sl_wfx_host_transmit_frame(void* frame, uint32_t frame_len)
  * @returns SL_WIFI_SLEEP_GRANTED to let the WFx go to sleep,
  * SL_WIFI_SLEEP_NOT_GRANTED otherwise
  *****************************************************************************/
-sl_status_t sl_wfx_host_sleep_grant(sl_wfx_host_bus_transfer_type_t type,
-                                    sl_wfx_register_address_t address,
-                                    uint32_t length)
+WEAK sl_status_t sl_wfx_host_sleep_grant(sl_wfx_host_bus_transfer_type_t type,
+                                         sl_wfx_register_address_t address,
+                                         uint32_t length)
 {
   (void)(type);
   (void)(address);

@@ -18,10 +18,10 @@
 #define CURRENT_MODULE_NAME    "APP_COMMON_EXAMPLE_WIFI_COMMISSIONING"
 
 #include <stdio.h>
-#include "os.h"
-#include "io.h"
-#include "bsp_os.h"
-#include "common.h"
+//#include "os.h"
+//#include "io.h"
+//#include "bsp_os.h"
+//#include "common.h"
 #include "em_common.h"
 #include "sl_simple_led_instances.h"
 #include "sl_simple_button_instances.h"
@@ -30,13 +30,19 @@
 #include "app_wifi_events.h"
 #include "app_wifi_commissioning.h"
 #include "sl_wfx_host.h"
+#include "cmsis_os2.h"
+#include "sl_cmsis_os2_common.h"
+#include "sl_wfx_host_init.h"
 
 #define START_APP_TASK_PRIO              30u
 #define START_APP_TASK_STK_SIZE         600u
 /// Start task stack.
-static CPU_STK start_app_task_stk[START_APP_TASK_STK_SIZE];
+//static CPU_STK start_app_task_stk[START_APP_TASK_STK_SIZE];
 /// Start task TCB.
-static OS_TCB  start_app_task_tcb;
+//static OS_TCB  start_app_task_tcb;
+__ALIGNED(8) static uint8_t start_app_task_stk[(START_APP_TASK_STK_SIZE * sizeof(void *)) & 0xFFFFFFF8u];
+__ALIGNED(4) static uint8_t start_app_task_tcb[osThreadCbSize];
+
 static void    start_app_task(void *p_arg);
 
 void sl_button_on_change(const sl_button_t *handle)
@@ -52,10 +58,10 @@ void sl_button_on_change(const sl_button_t *handle)
 
 static void start_app_task(void *p_arg)
 {
-  RTOS_ERR  err;
-  PP_UNUSED_PARAM(p_arg); // Prevent compiler warning.
+//  RTOS_ERR  err;
+//  PP_UNUSED_PARAM(p_arg); // Prevent compiler warning.
 
-  OSSemPend(&wfx_init_sem, 0, OS_OPT_PEND_BLOCKING, 0, &err);
+  osSemaphoreAcquire(sl_wfx_init_sem, osWaitForever);
   // Clear the console and buffer
   printf("Wi-Fi Commissioning Micrium  OS Example\r\n");
 
@@ -63,27 +69,26 @@ static void start_app_task(void *p_arg)
   webpage_start();
 
   // Delete the init thread.
-  OSTaskDel(0, &err);
+//  OSTaskDel(0, &err);
+  osThreadExit();
 }
 /**************************************************************************//**
  * Wi-Fi Commissioning application init.
  *****************************************************************************/
 void app_wifi_commissioning_init(void)
 {
-  RTOS_ERR err;
+  osThreadId_t       thread_id;
+  osThreadAttr_t     thread_attr;
+  thread_attr.name = "Start APP Task";
+  thread_attr.priority = START_APP_TASK_PRIO;
+  thread_attr.stack_mem = start_app_task_stk;
+  thread_attr.stack_size = START_APP_TASK_STK_SIZE;
+  thread_attr.cb_mem = start_app_task_tcb;
+  thread_attr.cb_size = osThreadCbSize;
+  thread_attr.attr_bits = 0u;
+  thread_attr.tz_module = 0u;
 
-  OSTaskCreate(&start_app_task_tcb,   // Create the Start Task.
-               "Start APP Task",
-               start_app_task,
-               DEF_NULL,
-               START_APP_TASK_PRIO,
-               &start_app_task_stk[0],
-               (START_APP_TASK_STK_SIZE / 10u),
-               START_APP_TASK_STK_SIZE,
-               0u,
-               0u,
-               DEF_NULL,
-               (OS_OPT_TASK_STK_CLR),
-               &err);
-  APP_RTOS_ASSERT_DBG((RTOS_ERR_CODE_GET(err) == RTOS_ERR_NONE), 1);
+  // notice
+  thread_id = osThreadNew(start_app_task, NULL, &thread_attr);
+  EFM_ASSERT(thread_id != NULL);
 }

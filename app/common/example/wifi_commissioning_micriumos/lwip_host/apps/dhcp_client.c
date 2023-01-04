@@ -21,10 +21,13 @@
 #include "lwip/dhcp.h"
 #include "lwip/netifapi.h"
 #include "app_webpage.h"
-#include <kernel/include/os.h>
-#include <common/include/rtos_utils.h>
-#include <common/include/rtos_err.h>
-#include <common/source/kal/kal_priv.h>
+//#include <kernel/include/os.h>
+//#include <common/include/rtos_utils.h>
+//#include <common/include/rtos_err.h>
+//#include <common/source/kal/kal_priv.h>
+#include "sl_cmsis_os2_common.h"
+#include "cmsis_os2.h"
+
 
 // DHCP client states
 #define DHCP_OFF                   (uint8_t) 0
@@ -43,9 +46,12 @@ static volatile uint8_t dhcp_state = DHCP_OFF;
 #define DHCP_TASK_STK_SIZE         512u
 
 /// DHCP client task stack
-static CPU_STK dhcp_task_stk[DHCP_TASK_STK_SIZE];
+//static CPU_STK dhcp_task_stk[DHCP_TASK_STK_SIZE];
 /// DHCP client task TCB
-static OS_TCB dhcp_task_tcb;
+//static OS_TCB dhcp_task_tcb;
+
+__ALIGNED(8) static uint8_t dhcp_task_stk[(DHCP_TASK_STK_SIZE * sizeof(void *)) & 0xFFFFFFF8u];
+__ALIGNED(4) static uint8_t dhcp_task_tcb[osThreadCbSize];
 
 /***************************************************************************//**
  * Notify DHCP client task about the wifi status
@@ -125,7 +131,8 @@ static void dhcp_client_task(void *arg)
     }
 
     // wait 250 ms
-    KAL_Dly(250);
+//    KAL_Dly(250);
+    osDelay(250);
   }
 }
 
@@ -134,20 +141,36 @@ static void dhcp_client_task(void *arg)
  ******************************************************************************/
 void dhcpclient_start(void)
 {
-  RTOS_ERR err;
-  OSTaskCreate(&dhcp_task_tcb,
-               "DHCP Task",
-               dhcp_client_task,
-               &sta_netif,
-               DHCP_TASK_PRIO,
-               &dhcp_task_stk[0],
-               (DHCP_TASK_STK_SIZE / 10u),
-               DHCP_TASK_STK_SIZE,
-               0u,
-               0u,
-               DEF_NULL,
-               (OS_OPT_TASK_STK_CLR),
-               &err);
+
+  osThreadId_t       thread_id;
+  osThreadAttr_t     thread_attr;
+
+  thread_attr.name = "DHCP Task";
+  thread_attr.priority = DHCP_TASK_PRIO;
+  thread_attr.stack_mem = dhcp_task_stk;
+  thread_attr.stack_size = DHCP_TASK_STK_SIZE;
+  thread_attr.cb_mem = dhcp_task_tcb;
+  thread_attr.cb_size = osThreadCbSize;
+  thread_attr.attr_bits = 0u;
+  thread_attr.tz_module = 0u;
+
+//   notice
+  thread_id = osThreadNew(dhcp_client_task, NULL, &thread_attr);
+  EFM_ASSERT(thread_id != NULL);
+//  RTOS_ERR err;
+//  OSTaskCreate(&dhcp_task_tcb,
+//               "DHCP Task",
+//               dhcp_client_task,
+//               &sta_netif,
+//               DHCP_TASK_PRIO,
+//               &dhcp_task_stk[0],
+//               (DHCP_TASK_STK_SIZE / 10u),
+//               DHCP_TASK_STK_SIZE,
+//               0u,
+//               0u,
+//               DEF_NULL,
+//               (OS_OPT_TASK_STK_CLR),
+//               &err);
   //   Check error code.
-  APP_RTOS_ASSERT_DBG((RTOS_ERR_CODE_GET(err) == RTOS_ERR_NONE), 1);
+//  APP_RTOS_ASSERT_DBG((RTOS_ERR_CODE_GET(err) == RTOS_ERR_NONE), 1);
 }

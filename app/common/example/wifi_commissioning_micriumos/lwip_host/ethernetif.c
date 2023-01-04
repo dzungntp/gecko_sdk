@@ -30,11 +30,11 @@
 #include "app_webpage.h"
 #include "app_wifi_events.h"
 
-#include <kernel/include/os.h>
-#include <common/include/rtos_utils.h>
-#include <common/include/rtos_err.h>
-#include <common/source/kal/kal_priv.h>
-#include <common/include/rtos_err.h>
+//#include <kernel/include/os.h>
+//#include <common/include/rtos_utils.h>
+//#include <common/include/rtos_err.h>
+//#include <common/source/kal/kal_priv.h>
+//#include <common/include/rtos_err.h>
 #include "sl_wfx_task.h"
 #include "sl_wfx_host.h"
 
@@ -81,14 +81,13 @@ static void low_level_init(struct netif *netif)
  ******************************************************************************/
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
-  RTOS_ERR err;
   struct pbuf *q;
   uint8_t *buffer;
   sl_wfx_packet_queue_item_t *queue_item;
   sl_status_t result;
 
   /* Take TX queue mutex */
-  OSMutexPend(&sl_wfx_tx_queue_mutex, 0, OS_OPT_PEND_BLOCKING, 0, &err);
+  osMutexAcquire(sl_wfx_tx_queue_mutex, osWaitForever);
 
   /* Allocate a buffer for a queue item */
   result = sl_wfx_allocate_command_buffer((sl_wfx_generic_message_t**)(&queue_item),
@@ -98,7 +97,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
   if ((result != SL_STATUS_OK) || (queue_item == NULL)) {
     /* Release TX queue mutex */
-    OSMutexPost(&sl_wfx_tx_queue_mutex, OS_OPT_POST_NONE, &err);
+    osMutexRelease(sl_wfx_tx_queue_mutex);
     return ERR_MEM;
   }
 
@@ -126,10 +125,10 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
   sl_wfx_tx_queue_context.tail_ptr = queue_item;
 
   /* Notify that a TX frame is ready */
-  OSFlagPost(&bus_events, SL_WFX_BUS_EVENT_FLAG_TX, OS_OPT_POST_FLAG_SET, &err);
+  osEventFlagsSet(sl_wfx_bus_events, SL_WFX_BUS_EVENT_FLAG_TX);
 
   /* Release TX queue mutex */
-  OSMutexPost(&sl_wfx_tx_queue_mutex, OS_OPT_POST_NONE, &err);
+  osMutexRelease(sl_wfx_tx_queue_mutex);
 
   return ERR_OK;
 }

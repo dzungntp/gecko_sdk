@@ -18,7 +18,6 @@
 #include "sl_wfx_configuration_defaults.h"
 
 #ifdef  SL_WFX_USE_SPI
-#include  <rtos_description.h>
 
 #include "sl_wfx.h"
 #include "sl_wfx_host_api.h"
@@ -31,16 +30,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <kernel/include/os.h>
-#include <common/include/rtos_utils.h>
-#include <common/include/rtos_err.h>
+
 #ifdef SLEEP_ENABLED
 #include "sl_power_manager.h"
 #endif
 
+#ifdef SL_CATALOG_KERNEL_PRESENT
+#include "cmsis_os2.h"
+#include "sl_cmsis_os2_common.h"
+
+static osSemaphoreId_t spi_sem;
+static uint8_t spi_sem_cb[osSemaphoreCbSize];
+#endif
+
 #define USART           SL_WFX_HOST_PINOUT_SPI_PERIPHERAL
 
-static OS_SEM spi_sem;
 static unsigned int        tx_dma_channel;
 static unsigned int        rx_dma_channel;
 static uint32_t            dummy_rx_data;
@@ -48,7 +52,7 @@ static uint32_t            dummy_tx_data;
 static uint32_t            usart_clock;
 static uint32_t            usart_rx_signal;
 static uint32_t            usart_tx_signal;
-static bool spi_enabled = false;
+static bool                spi_enabled = false;
 
 uint8_t wirq_irq_nb = SL_WFX_HOST_PINOUT_SPI_WIRQ_PIN;
 
@@ -123,48 +127,99 @@ static int sl_wfx_host_spi_set_config(void *usart)
  *****************************************************************************/
 sl_status_t sl_wfx_host_init_bus(void)
 {
-  RTOS_ERR err;
+  sl_status_t status = SL_STATUS_OK;
   int res;
 
   // Initialize and enable the USART
   USART_InitSync_TypeDef usartInit = USART_INITSYNC_DEFAULT;
 
   res = sl_wfx_host_spi_set_config(USART);
-  if (res != 0) {
-    return SL_STATUS_FAIL;
-  }
 
-  spi_enabled = true;
-  dummy_tx_data = 0;
-  usartInit.baudrate = 36000000u;
-  usartInit.msbf = true;
-  CMU_ClockEnable(cmuClock_HFPER, true);
-  CMU_ClockEnable(cmuClock_GPIO, true);
-  CMU_ClockEnable(usart_clock, true);
-  USART_InitSync(USART, &usartInit);
-  USART->CTRL |= (1u << _USART_CTRL_SMSDELAY_SHIFT);
-  USART->ROUTELOC0 = (USART->ROUTELOC0
-                      & ~(_USART_ROUTELOC0_TXLOC_MASK
+  if (res == 0) {
+    spi_enabled = true;
+    dummy_tx_data = 0;
+    usartInit.baudrate = 36000000u;
+    usartInit.msbf = true;
+
+    #if defined(EFR32MG24B020F1536IM48) || defined(EFR32MG24A020F1536GM48) || defined(EFR32MG24B220F1536IM48)
+      CMU_ClockEnable(cmuClock_USART0, true);
+    #elif defined(EFR32MG21A020F1024IM32) || defined(EFR32MG21A010F1024IM32)
+      CMU_ClockEnable(cmuClock_USART2, true);
+    #else
+      CMU_ClockEnable(cmuClock_HFPER, true);
+    #endif
+
+    CMU_ClockEnable(cmuClock_GPIO, true);
+    CMU_ClockEnable(usart_clock, true);
+    USART_InitSync(USART, &usartInit);
+    USART->CTRL |= (1u << _USART_CTRL_SMSDELAY_SHIFT);
+
+#if defined(EFR32MG24B020F1536IM48) || defined(EFR32MG24A020F1536GM48) || defined(EFR32MG24B220F1536IM48) \
+    || defined(EFR32MG21A020F1024IM32) || defined(EFR32MG21A010F1024IM32)
+
+    GPIO->USARTROUTE[SL_WFX_HOST_PINOUT_SPI_PERIPHERAL_NO].TXROUTE = 
+                                  (SL_WFX_HOST_PINOUT_SPI_TX_PORT 
+                                  << _GPIO_USART_TXROUTE_PORT_SHIFT)
+                                  | (SL_WFX_HOST_PINOUT_SPI_TX_PIN 
+                                  << _GPIO_USART_TXROUTE_PIN_SHIFT);
+
+    GPIO->USARTROUTE[SL_WFX_HOST_PINOUT_SPI_PERIPHERAL_NO].RXROUTE = 
+                                  (SL_WFX_HOST_PINOUT_SPI_RX_PORT 
+                                  << _GPIO_USART_RXROUTE_PORT_SHIFT)
+                                  | (SL_WFX_HOST_PINOUT_SPI_RX_PIN 
+                                  << _GPIO_USART_RXROUTE_PIN_SHIFT);
+
+    GPIO->USARTROUTE[SL_WFX_HOST_PINOUT_SPI_PERIPHERAL_NO].CLKROUTE = 
+                                  (SL_WFX_HOST_PINOUT_SPI_CLK_PORT 
+                                  << _GPIO_USART_CLKROUTE_PORT_SHIFT)
+                                  | (SL_WFX_HOST_PINOUT_SPI_CLK_PIN 
+                                  << _GPIO_USART_CLKROUTE_PIN_SHIFT);
+
+    GPIO->USARTROUTE[SL_WFX_HOST_PINOUT_SPI_PERIPHERAL_NO].ROUTEEN = 
+                                  GPIO_USART_ROUTEEN_RXPEN  |
+                                  GPIO_USART_ROUTEEN_TXPEN  |
+                                  GPIO_USART_ROUTEEN_CLKPEN;
+
+#else
+    USART->ROUTELOC0 = (USART->ROUTELOC0
+                          & ~(_USART_ROUTELOC0_TXLOC_MASK
                           | _USART_ROUTELOC0_RXLOC_MASK
                           | _USART_ROUTELOC0_CLKLOC_MASK))
-                     | (SL_WFX_HOST_PINOUT_SPI_TX_LOC  << _USART_ROUTELOC0_TXLOC_SHIFT)
-                     | (SL_WFX_HOST_PINOUT_SPI_RX_LOC  << _USART_ROUTELOC0_RXLOC_SHIFT)
-                     | (SL_WFX_HOST_PINOUT_SPI_CLK_LOC << _USART_ROUTELOC0_CLKLOC_SHIFT);
+                    | (SL_WFX_HOST_PINOUT_SPI_TX_LOC  << _USART_ROUTELOC0_TXLOC_SHIFT)
+                    | (SL_WFX_HOST_PINOUT_SPI_RX_LOC  << _USART_ROUTELOC0_RXLOC_SHIFT)
+                    | (SL_WFX_HOST_PINOUT_SPI_CLK_LOC << _USART_ROUTELOC0_CLKLOC_SHIFT);
 
-  USART->ROUTEPEN = USART_ROUTEPEN_TXPEN
+    USART->ROUTEPEN = USART_ROUTEPEN_TXPEN
                     | USART_ROUTEPEN_RXPEN
                     | USART_ROUTEPEN_CLKPEN;
-  GPIO_DriveStrengthSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, gpioDriveStrengthStrongAlternateStrong);
-  GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_TX_PORT, SL_WFX_HOST_PINOUT_SPI_TX_PIN, gpioModePushPull, 0);
-  GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_RX_PORT, SL_WFX_HOST_PINOUT_SPI_RX_PIN, gpioModeInput, 0);
-  GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, SL_WFX_HOST_PINOUT_SPI_CLK_PIN, gpioModePushPull, 0);
-  OSSemCreate(&spi_sem, "spi semaphore", 0, &err);
-  DMADRV_Init();
-  DMADRV_AllocateChannel(&tx_dma_channel, NULL);
-  DMADRV_AllocateChannel(&rx_dma_channel, NULL);
-  GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_CS_PORT, SL_WFX_HOST_PINOUT_SPI_CS_PIN, gpioModePushPull, 1);
-  USART->CMD = USART_CMD_CLEARRX | USART_CMD_CLEARTX;
-  return SL_STATUS_OK;
+    GPIO_DriveStrengthSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, gpioDriveStrengthStrongAlternateStrong);
+#endif
+
+    GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_TX_PORT, SL_WFX_HOST_PINOUT_SPI_TX_PIN, gpioModePushPull, 0);
+    GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_RX_PORT, SL_WFX_HOST_PINOUT_SPI_RX_PIN, gpioModeInput, 0);
+    GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_CLK_PORT, SL_WFX_HOST_PINOUT_SPI_CLK_PIN, gpioModePushPull, 0);
+
+#ifdef SL_CATALOG_KERNEL_PRESENT
+    osSemaphoreAttr_t sem_attr;
+
+    sem_attr.name = "WFX SPI semaphore";
+    sem_attr.cb_mem = spi_sem_cb;
+    sem_attr.cb_size = osSemaphoreCbSize;
+    sem_attr.attr_bits = 0;
+    spi_sem = osSemaphoreNew(1, 0, &sem_attr);
+    if (spi_sem == NULL) {
+      status = SL_STATUS_FAIL;
+    }
+#endif
+    DMADRV_Init();
+    DMADRV_AllocateChannel(&tx_dma_channel, NULL);
+    DMADRV_AllocateChannel(&rx_dma_channel, NULL);
+    GPIO_PinModeSet(SL_WFX_HOST_PINOUT_SPI_CS_PORT, SL_WFX_HOST_PINOUT_SPI_CS_PIN, gpioModePushPull, 1);
+    USART->CMD = USART_CMD_CLEARRX | USART_CMD_CLEARTX;
+  } else {
+    status = SL_STATUS_FAIL;
+  }
+  return status;
 }
 
 /**************************************************************************//**
@@ -172,9 +227,8 @@ sl_status_t sl_wfx_host_init_bus(void)
  *****************************************************************************/
 sl_status_t sl_wfx_host_deinit_bus(void)
 {
-  RTOS_ERR err;
+  osSemaphoreDelete(spi_sem);
 
-  OSSemDel(&spi_sem, OS_OPT_DEL_ALWAYS, &err);
   // Stop DMAs.
   DMADRV_StopTransfer(rx_dma_channel);
   DMADRV_StopTransfer(tx_dma_channel);
@@ -210,8 +264,8 @@ static bool rx_dma_complete(unsigned int channel,
   (void)channel;
   (void)sequenceNo;
   (void)userParam;
-  RTOS_ERR err;
-  OSSemPost(&spi_sem, OS_OPT_POST_1, &err);
+
+  osSemaphoreRelease(spi_sem);
   return true;
 }
 
@@ -274,9 +328,9 @@ sl_status_t sl_wfx_host_spi_transfer_no_cs_assert(sl_wfx_host_bus_transfer_type_
                                                   uint8_t *buffer,
                                                   uint16_t buffer_length)
 {
+  osStatus_t status = osOK;
   const bool is_read = (type == SL_WFX_BUS_READ);
-  RTOS_ERR err;
-  err.Code = RTOS_ERR_NONE;
+
   while (!(USART->STATUS & USART_STATUS_TXBL)) {
   }
   USART->CMD = USART_CMD_CLEARRX | USART_CMD_CLEARTX;
@@ -293,16 +347,15 @@ sl_status_t sl_wfx_host_spi_transfer_no_cs_assert(sl_wfx_host_bus_transfer_type_
   }
   if (buffer_length > 0) {
     USART->CMD = USART_CMD_CLEARRX | USART_CMD_CLEARTX;
-    OSSemSet(&spi_sem, 0, &err);
     if (is_read) {
       receiveDMA(buffer, buffer_length);
     } else {
       transmitDMA(buffer, buffer_length);
     }
-    OSSemPend(&spi_sem, 0, OS_OPT_PEND_BLOCKING, 0, &err);
+    status = osSemaphoreAcquire(spi_sem, 1000);
   }
 
-  if (err.Code == RTOS_ERR_NONE) {
+  if (status == osOK) {
     return SL_STATUS_OK;
   } else {
     return SL_STATUS_FAIL;

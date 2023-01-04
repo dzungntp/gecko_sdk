@@ -17,10 +17,12 @@
 #define APP_WIFI_EVENTS_H
 
 #include "sl_wfx_constants.h"
-#include <kernel/include/os.h>
-#include <common/include/rtos_utils.h>
-#include <common/include/rtos_err.h>
-#include <common/include/rtos_err.h>
+//#include <kernel/include/os.h>
+//#include <common/include/rtos_utils.h>
+//#include <common/include/rtos_err.h>
+//#include <common/include/rtos_err.h>
+#include "cmsis_os2.h"
+#include "sl_cmsis_os2_common.h"
 
 /* Wi-Fi events*/
 #define SL_WFX_EVENT_CONNECT          (1 << 1)
@@ -29,8 +31,8 @@
 #define SL_WFX_EVENT_STOP_AP          (1 << 4)
 #define SL_WFX_EVENT_SCAN_COMPLETE    (1 << 5)
 
-extern sl_wfx_context_t   wifi;
-extern OS_Q               wifi_events;
+extern sl_wfx_context_t     wifi;
+extern osMessageQueueId_t   wifi_events;
 
 #ifdef __cplusplus
 extern "C" {

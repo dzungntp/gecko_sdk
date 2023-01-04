@@ -8,15 +8,21 @@ provides:
   - name: "wfx_fmac_driver"
 requires:
   - name: "wfx_bus_interface"
-  - name: "micriumos"
-  - name: "io_core"
-  - name: "common_lib"
-  - name: "micriumos_bsp"
+  - name: "cmsis_rtos2"
+  - name: "mem_pool"
   - name: "emlib_gpio"
   - name: "gpiointerrupt"
   - name: "sleeptimer"
   - name: "wfx_bus_spi"
     condition: [brd4161a]
+  - name: "wfx_bus_spi"
+    condition: [brd4187a]
+  - name: "wfx_bus_spi"
+    condition: [brd4187b]
+  - name: "wfx_bus_spi"
+    condition: [brd4187c]
+  - name: "wfx_bus_spi"
+    condition: [brd4180a]
   - name: "wfx_bus_spi"
     condition: [brd4162a]
   - name: "wfx_bus_spi"
@@ -30,6 +36,8 @@ requires:
 recommends:
   - id: "wfx_bus_spi"
     condition: [brd2204a]
+  - id: "wfx_bus_spi"
+    condition: [brd2204c]
 root_path: "platform/radio/wifi/wfx_fmac_driver"
 include:
   - path: "./"
@@ -77,6 +85,8 @@ source:
   - path: "wfx_host/sl_wfx_host.c"
   - path: "wfx_host/sl_wfx_task.c"
   - path: "wfx_host/sl_wfx_host_init.c"
+    condition:
+      - cmsis_rtos2
 config_file:
   - path: "config/sl_wfx_configuration.h"
     file_id: "sl_wfx_configuration"
@@ -85,8 +95,13 @@ config_file:
   - override:
       component: "wfx_fmac_driver"
       file_id: "sl_wfx_host_pinout"
-    path: "config/brd2204a/sl_wfx_host_pinout.h"
+    path: "config/brd2204x/sl_wfx_host_pinout.h"
     condition: [brd2204a]
+  - override:
+      component: "wfx_fmac_driver"
+      file_id: "sl_wfx_host_pinout"
+    path: "config/brd2204x/sl_wfx_host_pinout.h"
+    condition: [brd2204c]
   - override:
       component: "wfx_fmac_driver"
       file_id: "sl_wfx_host_pinout"
@@ -107,6 +122,26 @@ config_file:
       file_id: "sl_wfx_host_pinout"
     path: "config/brd416Xa/sl_wfx_host_pinout.h"
     condition: [brd4164a]
+  - override:
+      component: "wfx_fmac_driver"
+      file_id: "sl_wfx_host_pinout"
+    path: "config/brd4187x/sl_wfx_host_pinout.h"
+    condition: [brd4187a]
+  - override:
+      component: "wfx_fmac_driver"
+      file_id: "sl_wfx_host_pinout"
+    path: "config/brd4187x/sl_wfx_host_pinout.h"
+    condition: [brd4187b]
+  - override:
+      component: "wfx_fmac_driver"
+      file_id: "sl_wfx_host_pinout"
+    path: "config/brd4187x/sl_wfx_host_pinout.h"
+    condition: [brd4187c]
+  - override:
+      component: "wfx_fmac_driver"
+      file_id: "sl_wfx_host_pinout"
+    path: "config/brd4180x/sl_wfx_host_pinout.h"
+    condition: [brd4180a]
   - override:
       component: "wfx_fmac_driver"
       file_id: "sl_wfx_host_pinout"
